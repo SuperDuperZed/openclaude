@@ -616,6 +616,10 @@ export async function initBridgeCore(
 
   async function doReconnect(): Promise<boolean> {
     environmentRecreations++
+    // Bump the pointer generation so the hourly refresh timer detects
+    // that currentSessionId/environmentId are about to change and skips
+    // its write to avoid overwriting the pointer with stale IDs.
+    pointerGeneration++
     // Invalidate any in-flight v2 handshake — the environment is being
     // recreated, so a stale transport arriving post-reconnect would be
     // pointed at a dead session.
@@ -1507,18 +1511,27 @@ export async function initBridgeCore(
   // daemon idle for >4h would have a stale pointer, and the next restart
   // would clear it (readBridgePointer TTL check) → fresh session. The
   // standalone bridge (bridgeMain.ts) has an identical hourly timer.
+  //
+  // NOTE: currentSessionId and environmentId are reassigned non-atomically
+  // during doReconnect (env at ~:634, session at ~:719, awaits in between).
+  // We use a generation counter to detect when these variables change
+  // between our snapshot and the write, and skip the write if stale.
+  let pointerGeneration = 0
   const pointerRefreshTimer = perpetual
     ? setInterval(() => {
-        // doReconnect() reassigns currentSessionId/environmentId non-
-        // atomically (env at ~:634, session at ~:719, awaits in between).
-        // If this timer fires in that window, its fire-and-forget write can
-        // race with (and overwrite) doReconnect's own pointer write at ~:740,
-        // leaving the pointer at the now-archived old session. doReconnect
-        // writes the pointer itself, so skipping here is free.
+        // doReconnect() writes the pointer itself, so skipping during
+        // reconnect is free. We also capture a snapshot + generation to
+        // avoid writing stale IDs if the timer fires mid-reconnect.
         if (reconnectPromise) return
+        const gen = pointerGeneration
+        const snapshotSessionId = currentSessionId
+        const snapshotEnvId = environmentId
+        // Re-check after snapshot: if generation advanced, the IDs changed
+        // under us (mid-reconnect). Skip to avoid writing stale pointers.
+        if (gen !== pointerGeneration) return
         void writeBridgePointer(dir, {
-          sessionId: currentSessionId,
-          environmentId,
+          sessionId: snapshotSessionId,
+          environmentId: snapshotEnvId,
           source: 'repl',
         })
       }, 60 * 60_000)
