@@ -256,8 +256,15 @@ export const ExitPlanModeV2Tool: Tool<InputSchema, Output> = buildTool({
     // after: the only other persistFileSnapshotIfRemote call (api.ts) runs
     // in normalizeToolInput, pre-permission — it captured the old plan.
     if (inputPlan !== undefined && filePath) {
-      await writeFile(filePath, inputPlan, 'utf-8').catch(e => logError(e))
-      void persistFileSnapshotIfRemote()
+      try {
+        await writeFile(filePath, inputPlan, 'utf-8')
+        void persistFileSnapshotIfRemote()
+      } catch (e) {
+        logError(e)
+        throw new Error(
+          `Failed to write plan file at ${filePath}: ${e instanceof Error ? e.message : String(e)}. The plan may not have been saved to disk.`,
+        )
+      }
     }
 
     // Check if this is a teammate that requires leader approval
