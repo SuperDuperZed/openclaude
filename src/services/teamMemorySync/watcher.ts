@@ -129,6 +129,9 @@ async function executePush(): Promise<void> {
 /**
  * Debounced push: waits for writes to settle, then pushes once.
  */
+const MAX_RESCHEDULE_ATTEMPTS = 5
+let rescheduleCount = 0
+
 function schedulePush(): void {
   if (pushSuppressedReason !== null) return
   hasPendingChanges = true
@@ -137,9 +140,19 @@ function schedulePush(): void {
   }
   debounceTimer = setTimeout(() => {
     if (pushInProgress) {
+      rescheduleCount++
+      if (rescheduleCount > MAX_RESCHEDULE_ATTEMPTS) {
+        logForDebugging(
+          `team-memory-watcher: push reschedule limit reached (${rescheduleCount} attempts), giving up on this batch`,
+          { level: 'warn' },
+        )
+        rescheduleCount = 0
+        return
+      }
       schedulePush()
       return
     }
+    rescheduleCount = 0
     currentPushPromise = executePush()
   }, DEBOUNCE_MS)
 }
