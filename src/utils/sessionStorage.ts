@@ -2739,6 +2739,9 @@ function convertToLogOption(
   agentSetting?: string,
   contentReplacements?: ContentReplacementRecord[],
 ): LogOption {
+  if (transcript.length === 0) {
+    throw new Error('Cannot convert empty transcript to LogOption')
+  }
   const lastMessage = transcript.at(-1)!
   const firstMessage = transcript[0]!
 
@@ -3551,7 +3554,7 @@ function pickDepthOneUuidCandidate(
     else if (b === OPEN_BRACE) depth++
     else if (b === CLOSE_BRACE) depth--
   }
-  return candidates.at(-1)!
+  return candidates.at(-1) ?? -1
 }
 
 function walkChainBeforeParse(buf: Buffer): Buffer {
