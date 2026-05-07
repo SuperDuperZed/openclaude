@@ -1459,6 +1459,25 @@ function buildPendingClassifierCheck(
 
 const speculativeChecks = new Map<string, Promise<ClassifierResult>>()
 
+/** Maximum number of entries before stale ones are evicted (LRU-style). */
+const SPECULATIVE_CHECKS_MAX_SIZE = 500
+
+/**
+ * Evict the oldest entries if the speculativeChecks Map exceeds the cap.
+ * Uses FIFO ordering (first-set entries are evicted first) which is sufficient
+ * because speculative checks are short-lived and order correlates with age.
+ */
+function evictStaleSpeculativeChecks(): void {
+  if (speculativeChecks.size <= SPECULATIVE_CHECKS_MAX_SIZE) return
+  const entriesToRemove = speculativeChecks.size - SPECULATIVE_CHECKS_MAX_SIZE
+  let removed = 0
+  for (const key of speculativeChecks.keys()) {
+    if (removed >= entriesToRemove) break
+    speculativeChecks.delete(key)
+    removed++
+  }
+}
+
 /**
  * Start a speculative bash allow classifier check early, so it runs in
  * parallel with pre-tool hooks, deny/ask classifiers, and permission dialog setup.
@@ -1500,6 +1519,7 @@ export function startSpeculativeClassifierCheck(
   // The original promise (which may reject) is still stored in the Map for consumers to await.
   promise.catch(() => {})
   speculativeChecks.set(command, promise)
+  evictStaleSpeculativeChecks()
   return true
 }
 
